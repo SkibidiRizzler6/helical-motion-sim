@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Helical Motion Simulator</title>
+    <link rel="stylesheet" href="helical.css">
+</head>
+<body>
+    <div id="canvas-container">
+        <div id="control-panel">
+            <div class="panel-header">
+                <div class="panel-title">  Helical Motion</div>
+                <button class="collapse-btn" onclick="togglePanel()">←</button>
+            </div>
+
+            <div class="control-group">
+                <h3>Particle Properties</h3>
+                <div class="control-item">
+                    <label>Charge (q)</label>
+                    <div class="slider-container">
+                        <input type="range" id="charge" min="-5" max="5" step="0.1" value="1">
+                        <span class="value-display" id="charge-value">+1.0</span>
+                        <div class="charge-indicator" id="charge-indicator"></div>
+                    </div>
+                </div>
+                <div class="control-item">
+                    <label>Mass (m)</label>
+                    <div class="slider-container">
+                        <input type="range" id="mass" min="0.1" max="5" step="0.1" value="1">
+                        <span class="value-display" id="mass-value">1.0</span>
+                    </div>
+                </div>
+                <div class="control-item">
+                    <label>Velocity (v)</label>
+                    <div class="slider-container">
+                        <input type="range" id="velocity" min="-10" max="10" step="0.1" value="5">
+                        <span class="value-display" id="velocity-value">+5.0</span>
+                    </div>
+                </div>
+                <div class="control-item">
+                    <label>Angle θ (degrees)</label>
+                    <div class="slider-container">
+                        <input type="range" id="angle" min="0" max="90" step="1" value="45">
+                        <span class="value-display" id="angle-value">45°</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Field & Controls</h3>
+                <div class="control-item">
+                    <label>Magnetic Field (B)</label>
+                    <div class="slider-container">
+                        <input type="range" id="field" min="-5" max="5" step="0.1" value="1">
+                        <span class="value-display" id="field-value">+1.0</span>
+                        <div class="field-indicator" id="field-indicator">⊗</div>
+                    </div>
+                </div>
+                <div class="control-item">
+                    <label>Speed</label>
+                    <div class="slider-container">
+                        <input type="range" id="speed" min="0.1" max="3" step="0.1" value="1">
+                        <span class="value-display" id="speed-value">1.0×</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Visualization</h3>
+                <div class="control-item">
+                    <label>Show Vectors</label>
+                    <div class="toggle-switch active" id="vectors-toggle"></div>
+                </div>
+                <div class="control-item">
+                    <label>Show Trail</label>
+                    <div class="toggle-switch active" id="trail-toggle"></div>
+                </div>
+                <div class="control-item">
+                    <label>Show Field Lines</label>
+                    <div class="toggle-switch active" id="field-lines-toggle"></div>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn" id="play-pause-btn">⏸️ Pause</button>
+                <button class="btn" id="reset-btn">🔄 Reset</button>
+            </div>
+
+            <div class="control-group">
+                <h3>Calculations</h3>
+                <div id="calculations">
+                    <div class="calc-item">
+                        <span class="calc-label">Radius:</span>
+                        <span class="calc-value" id="radius-calc">0.00</span>
+                    </div>
+                    <div class="calc-item">
+                        <span class="calc-label">Frequency:</span>
+                        <span class="calc-value" id="frequency-calc">0.00</span>
+                    </div>
+                    <div class="calc-item">
+                        <span class="calc-label">Period:</span>
+                        <span class="calc-value" id="period-calc">0.00</span>
+                    </div>
+                    <div class="calc-item">
+                        <span class="calc-label">Pitch:</span>
+                        <span class="calc-value" id="pitch-calc">0.00</span>
+                    </div>
+                    <div class="calc-item">
+                        <span class="calc-label">Direction:</span>
+                        <span class="calc-value" id="direction-calc">Clockwise</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="expand-btn" onclick="togglePanel()">
+            <span>⚙️</span>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        class OrbitControls {
+            constructor(camera, domElement) {
+                this.camera = camera;
+                this.domElement = domElement;
+                this.target = new THREE.Vector3(0, 0, 0);
+                this.spherical = new THREE.Spherical();
+                this.sphericalDelta = new THREE.Spherical();
+                this.scale = 1;
+                this.state = { NONE: -1, ROTATE: 0, DOLLY: 1 };
+                this.currentState = this.state.NONE;
+                this.rotateStart = new THREE.Vector2();
+                this.rotateEnd = new THREE.Vector2();
+                this.rotateDelta = new THREE.Vector2();
+                this.addEventListeners();
+                this.update();
+            }
+            
+            addEventListeners() {
+                this.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+                this.domElement.addEventListener('mousedown', this.onMouseDown.bind(this));
+                this.domElement.addEventListener('wheel', this.onMouseWheel.bind(this));
+                this.domElement.addEventListener('touchstart', this.onTouchStart.bind(this));
+                this.domElement.addEventListener('touchmove', this.onTouchMove.bind(this));
+                this.domElement.addEventListener('touchend', this.onTouchEnd.bind(this));
+            }
+            
+            onMouseDown(event) {
+                event.preventDefault();
+                this.currentState = this.state.ROTATE;
+                this.rotateStart.set(event.clientX, event.clientY);
+                this.domElement.addEventListener('mousemove', this.onMouseMove.bind(this));
+                this.domElement.addEventListener('mouseup', this.onMouseUp.bind(this));
+            }
+            
+            onMouseMove(event) {
+                if (this.currentState === this.state.ROTATE) {
+                    this.rotateEnd.set(event.clientX, event.clientY);
+                    this.rotateDelta.subVectors(this.rotateEnd, this.rotateStart).multiplyScalar(0.01);
+                    this.sphericalDelta.theta -= this.rotateDelta.x;
+                    this.sphericalDelta.phi -= this.rotateDelta.y;
+                    this.rotateStart.copy(this.rotateEnd);
+                    this.update();
+                }
+            }
+            
+            onMouseUp() {
+                this.domElement.removeEventListener('mousemove', this.onMouseMove.bind(this));
+                this.domElement.removeEventListener('mouseup', this.onMouseUp.bind(this));
+                this.currentState = this.state.NONE;
+            }
+            
+            onMouseWheel(event) {
+                event.preventDefault();
+                this.scale *= (event.deltaY < 0) ? 0.95 : 1.05;
+                this.update();
+            }
+            
+            onTouchStart(event) {
+                if (event.touches.length === 1) {
+                    this.currentState = this.state.ROTATE;
+                    this.rotateStart.set(event.touches[0].pageX, event.touches[0].pageY);
+                }
+            }
+            
+            onTouchMove(event) {
+                if (event.touches.length === 1 && this.currentState === this.state.ROTATE) {
+                    this.rotateEnd.set(event.touches[0].pageX, event.touches[0].pageY);
+                    this.rotateDelta.subVectors(this.rotateEnd, this.rotateStart).multiplyScalar(0.01);
+                    this.sphericalDelta.theta -= this.rotateDelta.x;
+                    this.sphericalDelta.phi -= this.rotateDelta.y;
+                    this.rotateStart.copy(this.rotateEnd);
+                    this.update();
+                }
+            }
+            
+            onTouchEnd() {
+                this.currentState = this.state.NONE;
+            }
+            
+            update() {
+                const offset = new THREE.Vector3();
+                offset.copy(this.camera.position).sub(this.target);
+                this.spherical.setFromVector3(offset);
+                this.spherical.theta += this.sphericalDelta.theta;
+                this.spherical.phi += this.sphericalDelta.phi;
+                this.spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, this.spherical.phi));
+                this.spherical.radius *= this.scale;
+                this.spherical.radius = Math.max(5, Math.min(100, this.spherical.radius));
+                offset.setFromSpherical(this.spherical);
+                this.camera.position.copy(this.target).add(offset);
+                this.camera.lookAt(this.target);
+                this.sphericalDelta.set(0, 0, 0);
+                this.scale = 1;
+                return true;
+            }
+        }
+
+        class HelicalMotionSimulator {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.controls = null;
+                this.particle = null;
+                this.trail = null;
+                this.vectors = {};
+                this.fieldLines = [];
+                
+                this.params = {
+                    charge: 1.0,
+                    mass: 1.0,
+                    velocity: 5.0,
+                    angle: 45 * Math.PI / 180,
+                    field: 1.0,
+                    speed: 1.0
+                };
+                
+                this.time = 0;
+                this.isPlaying = true;
+                this.trailPoints = [];
+                this.maxTrailLength = 300;
+                this.showVectors = true;
+                this.showTrail = true;
+                this.showFieldLines = true;
+                
+                this.init();
+            }
+            
+            init() {
+                this.setupScene();
+                this.setupParticle();
+                this.setupVectors();
+                this.setupFieldLines();
+                this.setupTrail();
+                this.setupControls();
+                this.setupUI();
+                this.animate();
+            }
+            
+            setupScene() {
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x000000);
+                
+                this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.camera.position.set(20, 15, 25);
+                
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                document.getElementById('canvas-container').appendChild(this.renderer.domElement);
+                
+                // Simple grid
+                const gridHelper = new THREE.GridHelper(30, 30, 0x0066ff, 0x003366);
+                this.scene.add(gridHelper);
+                
+                // Axes
+                const axesHelper = new THREE.AxesHelper(12);
+                this.scene.add(axesHelper);
+            }
+            
+            setupParticle() {
+                const geometry = new THREE.SphereGeometry(0.4, 16, 16);
+                const material = new THREE.MeshBasicMaterial({ color: 0x0099ff });
+                this.particle = new THREE.Mesh(geometry, material);
+                this.scene.add(this.particle);
+            }
+            
+            setupVectors() {
+                this.vectors.velocity = this.createVector(0xff0000, 2);
+                this.vectors.force = this.createVector(0x00ff00, 2);
+                this.vectors.field = this.createVector(0x0066ff, 3);
+                this.vectors.field.position.set(5, 5, 0);
+                this.updateFieldVector();
+            }
+            
+            createVector(color, length) {
+                const group = new THREE.Group();
+                
+                const shaftGeometry = new THREE.CylinderGeometry(0.03, 0.03, length, 6);
+                const shaftMaterial = new THREE.MeshBasicMaterial({ color: color });
+                const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
+                shaft.position.y = length / 2;
+                group.add(shaft);
+                
+                const headGeometry = new THREE.ConeGeometry(0.1, 0.2, 6);
+                const headMaterial = new THREE.MeshBasicMaterial({ color: color });
+                const head = new THREE.Mesh(headGeometry, headMaterial);
+                head.position.y = length + 0.1;
+                group.add(head);
+                
+                this.scene.add(group);
+                return group;
+            }
+            
+            setupFieldLines() {
+                const fieldLineMaterial = new THREE.LineBasicMaterial({ 
+                    color: 0x0066ff,
+                    transparent: true,
+                    opacity: 0.4
+                });
+                
+                for (let i = -12; i <= 12; i += 4) {
+                    for (let j = -12; j <= 12; j += 4) {
+                        const points = [
+                            new THREE.Vector3(i, j, -15),
+                            new THREE.Vector3(i, j, 15)
+                        ];
+                        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                        const line = new THREE.Line(geometry, fieldLineMaterial);
+                        this.scene.add(line);
+                        this.fieldLines.push(line);
+                    }
+                }
+            }
+            
+            setupTrail() {
+                const trailGeometry = new THREE.BufferGeometry();
+                const trailMaterial = new THREE.LineBasicMaterial({
+                    color: 0x00aaff,
+                    transparent: true,
+                    opacity: 0.8
+                });
+                this.trail = new THREE.Line(trailGeometry, trailMaterial);
+                this.scene.add(this.trail);
+            }
+            
+            setupControls() {
+                this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+            }
+            
+            setupUI() {
+                const sliders = ['charge', 'mass', 'velocity', 'angle', 'field', 'speed'];
+                sliders.forEach(id => {
+                    const slider = document.getElementById(id);
+                    const valueDisplay = document.getElementById(id + '-value');
+                    
+                    slider.addEventListener('input', (e) => {
+                        let value = parseFloat(e.target.value);
+                        if (id === 'angle') {
+                            this.params[id] = value * Math.PI / 180;
+                            valueDisplay.textContent = value + '°';
+                        } else if (id === 'speed') {
+                            this.params[id] = value;
+                            valueDisplay.textContent = value.toFixed(1) + '×';
+                        } else if (id === 'charge') {
+                            this.params[id] = value;
+                            valueDisplay.textContent = (value >= 0 ? '+' : '') + value.toFixed(1);
+                            this.updateParticleColor();
+                            this.updateChargeIndicator();
+                        } else if (id === 'velocity') {
+                            this.params[id] = value;
+                            valueDisplay.textContent = (value >= 0 ? '+' : '') + value.toFixed(1);
+                        } else if (id === 'field') {
+                            this.params[id] = value;
+                            valueDisplay.textContent = (value >= 0 ? '+' : '') + value.toFixed(1);
+                            this.updateFieldIndicator();
+                            this.updateFieldVector();
+                        } else {
+                            this.params[id] = value;
+                            valueDisplay.textContent = value.toFixed(1);
+                        }
+                        this.updateCalculations();
+                    });
+                });
+                
+                this.setupToggle('vectors-toggle', 'showVectors');
+                this.setupToggle('trail-toggle', 'showTrail');
+                this.setupToggle('field-lines-toggle', 'showFieldLines');
+                
+                document.getElementById('play-pause-btn').addEventListener('click', () => {
+                    this.togglePlayPause();
+                });
+                
+                document.getElementById('reset-btn').addEventListener('click', () => {
+                    this.reset();
+                });
+                
+                window.addEventListener('resize', () => {
+                    this.onWindowResize();
+                });
+                
+                this.updateCalculations();
+                this.updateParticleColor();
+                this.updateChargeIndicator();
+                this.updateFieldIndicator();
+            }
+            
+            setupToggle(id, property) {
+                const toggle = document.getElementById(id);
+                toggle.addEventListener('click', () => {
+                    this[property] = !this[property];
+                    toggle.classList.toggle('active', this[property]);
+                    this.updateVisibility();
+                });
+            }
+            
+            updateParticleColor() {
+                const charge = this.params.charge;
+                if (charge > 0) {
+                    this.particle.material.color.setHex(0xff4444); // Red for positive
+                } else if (charge < 0) {
+                    this.particle.material.color.setHex(0x4444ff); // Blue for negative
+                } else {
+                    this.particle.material.color.setHex(0x888888); // Gray for neutral
+                }
+            }
+            
+            updateChargeIndicator() {
+                const indicator = document.getElementById('charge-indicator');
+                const charge = this.params.charge;
+                if (charge > 0) {
+                    indicator.textContent = '+';
+                    indicator.style.color = '#ff4444';
+                } else if (charge < 0) {
+                    indicator.textContent = '−';
+                    indicator.style.color = '#4444ff';
+                } else {
+                    indicator.textContent = '0';
+                    indicator.style.color = '#888888';
+                }
+            }
+            
+            updateFieldIndicator() {
+                const indicator = document.getElementById('field-indicator');
+                const field = this.params.field;
+                if (field > 0) {
+                    indicator.textContent = '⊗'; // Into the page
+                    indicator.style.color = '#0066ff';
+                } else if (field < 0) {
+                    indicator.textContent = '⊙'; // Out of the page
+                    indicator.style.color = '#ff6600';
+                } else {
+                    indicator.textContent = '○';
+                    indicator.style.color = '#888888';
+                }
+            }
+            
+            updateCalculations() {
+                const { charge, mass, velocity, angle, field } = this.params;
+                
+                if (charge === 0 || field === 0) {
+                    document.getElementById('radius-calc').textContent = '∞';
+                    document.getElementById('frequency-calc').textContent = '0.00';
+                    document.getElementById('period-calc').textContent = '∞';
+                    document.getElementById('pitch-calc').textContent = '∞';
+                    document.getElementById('direction-calc').textContent = 'Straight';
+                    return;
+                }
+                
+                const vPerp = Math.abs(velocity) * Math.sin(angle);
+                const vParallel = velocity * Math.cos(angle);
+                const radius = Math.abs((mass * vPerp) / (charge * field));
+                const omega = Math.abs((charge * field) / mass);
+                const period = (2 * Math.PI) / omega;
+                const pitch = Math.abs((2 * Math.PI * vParallel) / omega);
+                
+                // Determine rotation direction
+                let direction;
+                if (charge * field > 0) {
+                    direction = velocity > 0 ? 'Clockwise' : 'Counter-clockwise';
+                } else {
+                    direction = velocity > 0 ? 'Counter-clockwise' : 'Clockwise';
+                }
+                
+                document.getElementById('radius-calc').textContent = radius.toFixed(2);
+                document.getElementById('frequency-calc').textContent = omega.toFixed(2);
+                document.getElementById('period-calc').textContent = period.toFixed(2);
+                document.getElementById('pitch-calc').textContent = pitch.toFixed(2);
+                document.getElementById('direction-calc').textContent = direction;
+            }
+            
+            updateVisibility() {
+                Object.keys(this.vectors).forEach(key => {
+                    this.vectors[key].visible = this.showVectors;
+                });
+                this.trail.visible = this.showTrail;
+                this.fieldLines.forEach(line => {
+                    line.visible = this.showFieldLines;
+                });
+            }
+            
+            updateFieldVector() {
+                const field = this.params.field;
+                if (field > 0) {
+                    // Field into the page (positive Z direction)
+                    this.vectors.field.rotation.x = -Math.PI / 2;
+                    this.vectors.field.rotation.z = 0;
+                } else {
+                    // Field out of the page (negative Z direction)
+                    this.vectors.field.rotation.x = Math.PI / 2;
+                    this.vectors.field.rotation.z = 0;
+                }
+            }
+            
+            updateVectors() {
+                if (!this.showVectors) return;
+                
+                const { charge, mass, velocity, angle, field } = this.params;
+                
+                if (charge === 0 || field === 0) {
+                    this.vectors.velocity.visible = this.showVectors;
+                    this.vectors.force.visible = false;
+                    return;
+                }
+                
+                const vPerp = Math.abs(velocity) * Math.sin(angle);
+                const vParallel = velocity * Math.cos(angle);
+                const omega = (charge * field) / mass;
+                
+                // Calculate velocity components
+                const vx = -vPerp * Math.sin(omega * this.time) * Math.sign(velocity);
+                const vy = vPerp * Math.cos(omega * this.time) * Math.sign(velocity);
+                const vz = vParallel;
+                
+                // Update velocity vector
+                this.vectors.velocity.position.copy(this.particle.position);
+                const velocityMagnitude = Math.sqrt(vx*vx + vy*vy + vz*vz);
+                if (velocityMagnitude > 0) {
+                    this.vectors.velocity.lookAt(
+                        this.particle.position.x + vx,
+                        this.particle.position.y + vy,
+                        this.particle.position.z + vz
+                    );
+                    this.vectors.velocity.rotateX(Math.PI / 2);
+                }
+                
+                // Calculate force components (F = q × v × B)
+                const fx = charge * (vy * field);
+                const fy = -charge * (vx * field);
+                const fz = 0;
+                
+                // Update force vector
+                this.vectors.force.position.copy(this.particle.position);
+                const forceMagnitude = Math.sqrt(fx*fx + fy*fy + fz*fz);
+                if (forceMagnitude > 0) {
+                    this.vectors.force.lookAt(
+                        this.particle.position.x + fx,
+                        this.particle.position.y + fy,
+                        this.particle.position.z + fz
+                    );
+                    this.vectors.force.rotateX(Math.PI / 2);
+                    this.vectors.force.visible = this.showVectors;
+                } else {
+                    this.vectors.force.visible = false;
+                }
+            }
+            
+            updateTrail() {
+                if (!this.showTrail) return;
+                
+                this.trailPoints.push(this.particle.position.clone());
+                if (this.trailPoints.length > this.maxTrailLength) {
+                    this.trailPoints.shift();
+                }
+                
+                const positions = new Float32Array(this.trailPoints.length * 3);
+                for (let i = 0; i < this.trailPoints.length; i++) {
+                    positions[i * 3] = this.trailPoints[i].x;
+                    positions[i * 3 + 1] = this.trailPoints[i].y;
+                    positions[i * 3 + 2] = this.trailPoints[i].z;
+                }
+                this.trail.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            }
+            
+            togglePlayPause() {
+                this.isPlaying = !this.isPlaying;
+                const btn = document.getElementById('play-pause-btn');
+                btn.textContent = this.isPlaying ? '⏸️ Pause' : '▶️ Play';
+            }
+            
+            reset() {
+                this.time = 0;
+                this.trailPoints = [];
+                this.particle.position.set(0, 0, 0);
+                this.updateVectors();
+                this.updateTrail();
+            }
+            
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+            
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                if (this.isPlaying) {
+                    const { charge, mass, velocity, angle, field, speed } = this.params;
+                    
+                    // Handle straight line motion when no magnetic force
+                    if (charge === 0 || field === 0) {
+                        const vParallel = velocity * Math.cos(angle);
+                        const z = vParallel * this.time;
+                        this.particle.position.set(0, 0, z);
+                    } else {
+                        // Helical motion
+                        const vPerp = Math.abs(velocity) * Math.sin(angle);
+                        const vParallel = velocity * Math.cos(angle);
+                        const radius = Math.abs((mass * vPerp) / (charge * field));
+                        const omega = (charge * field) / mass;
+                        
+                        let x, y;
+                        if (velocity > 0) {
+                            x = radius * Math.cos(omega * this.time);
+                            y = radius * Math.sin(omega * this.time);
+                        } else {
+                            x = radius * Math.cos(-omega * this.time);
+                            y = radius * Math.sin(-omega * this.time);
+                        }
+                        
+                        const z = vParallel * this.time;
+                        this.particle.position.set(x, y, z);
+                    }
+                    
+                    this.updateVectors();
+                    this.updateTrail();
+                    
+                    // Reset if particle goes too far
+                    if (Math.abs(this.particle.position.z) > 20) {
+                        this.reset();
+                    }
+                    
+                    this.time += 0.02 * speed;
+                }
+                
+                this.controls.update();
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+
+        function togglePanel() {
+            const panel = document.getElementById('control-panel');
+            const expandBtn = document.querySelector('.expand-btn');
+            
+            panel.classList.toggle('collapsed');
+            expandBtn.classList.toggle('show', panel.classList.contains('collapsed'));
+        }
+
+        // Initialize simulator
+        const simulator = new HelicalMotionSimulator();
+    </script>
+</body>
+</html>
